@@ -100,10 +100,18 @@ The random forests algorithm generated a very accurate model with __accuracy clo
 * Comparing model accuracy of the two models generated, random forests and boosting, random forests model has overall better accuracy.
 * The final random forests model contains 500 trees with 27 variables tried at each split. The five most important predictors in this model are `r rownames(imp)[1:5]`.
 * Estimated __out of sample error rate__ for the random forests model is __0.18%__ as reported by the final model.
+* Show confusion matrix for predictions on testing set.
 
 ```{r final_model, message = FALSE}
 # Final model
 rfFit$finalModel
+```
+```{r cv_test, message = FALSE}
+# Calculating predictions on testing set
+predictions <- predict(rfFit, testing)
+
+#Calculating confusion matrix on testing set
+confusionMatrix(predictions, testing$classe)
 ```
 
 
