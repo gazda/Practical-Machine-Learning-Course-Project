@@ -1,0 +1,131 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Igor Kaplanovic"
+date: "September 19, 2014"
+output:
+  html_document:
+    toc: yes
+---
+
+```{r prep, echo = FALSE, message = FALSE}
+library(caret)
+library(randomForest)
+load('boostFit.RData')
+load('rfFit.RData')
+```
+
+## Loading and exploring data 
+* Load data.
+* Remove columns with row numbers, user names and timestamps
+* Remove near zero covariates and those with more than 80% missing values since these variables will not provide much power for prediction.       
+* Calculate correlations between each remaining feature to the response, `classe`. Use `spearman` rank based correlation because `classe` is a factor.                 
+* Plot the two features that have highest correlation with `classe` and color with `classe` to see if we can separate response based on these features.            
+
+```{r data}
+# Loading given training data set
+data <- read.csv("pml-training.csv", na.strings = c("NA", "#DIV/0!", ""))
+
+# Removing firts 5 columns: X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp
+data <- data[, -c(1, 2, 3, 4, 5)]
+
+
+# Splitting data set into training and testing/cross-validation set
+inTrain <- createDataPartition(data$classe, p = 0.7, list = FALSE)
+training <- data[inTrain, ]
+testing <- data[-inTrain, ]
+
+
+# Removing near zero covariates
+nearZeroVariance <- nearZeroVar(training, saveMetrics = TRUE)
+training <- training[, !nearZeroVariance$nzv]
+
+# Removing variables with more than 80% missing values
+naVars <- sapply(colnames(training), function(x) if(sum(is.na(training[, x])) > 0.8*nrow(training)){return(T)}else{return(F)})
+training <- training[, !naVars]
+
+# Calculating correlations
+cor <- abs(sapply(colnames(training[, -ncol(training)]), function(x) cor(as.numeric(training[, x]), as.numeric(training$classe), method = "spearman")))
+```
+
+```{r data_plot}
+# Plotting predictors 
+summary(cor)
+plot(training[, names(which.max(cor))], training[, names(which.max(cor[-which.max(cor)]))], col = training$classe, pch = 19, cex = 0.1, xlab = names(which.max(cor)), ylab = names(which.max(cor[-which.max(cor)])))
+```
+
+The training set has __`r nrow(training)`__ samples and __`r ncol(training) - 1`__ potential predictors after filtering.          
+
+There doesn't seem to be any strong predictors that correlates with `classe` well and linear regression model is probably not suitable in this case. Boosting and random forests algorithms may generate more robust predictions for our data.         
+
+
+
+## Boosting model
+* Fit model with boosting algorithm and 10-fold cross validation to predict `classe` with all other predictors.    
+* Plot accuracy of this model on the scale `[0.75, 1]`.        
+
+```{r boost, eval = F}
+set.seed(123)
+boostFit <- train(classe ~ ., method = "gbm", data = training, verbose = FALSE, trControl = trainControl(method = "cv", number = 10))
+```
+```{r boost_plot}
+boostFit
+plot(boostFit, ylim = c(0.75, 1))
+```
+
+The boosting algorithm generated a good model with __accuracy = 0.985__. 
+
+
+
+## Random forests model   
+* Fit model with random forests algorithm and 10-fold cross validation to predict `classe` with all other predictors.    
+* Plot accuracy of the model on the scale `[0.9, 1]`.            
+
+```{r rf, eval = FALSE}
+set.seed(123)
+rfFit <- train(classe ~ ., method = "rf", data = training, importance = TRUE, trControl = trainControl(method = "cv", number = 10))
+```
+```{r rf_plot}
+rfFit
+plot(rfFit, ylim = c(0.9, 1))
+```
+```{r rf_imp, echo = FALSE}
+imp <- varImp(rfFit)$importance
+imp$max <- apply(imp, 1, max)
+imp <- imp[order(imp$max, decreasing = T), ]
+```
+
+The random forests algorithm generated a very accurate model with __accuracy close to 1__. Compared to boosting model, this model generally has better performance in terms of accuracy as seen from the plots.                     
+
+## Final model   
+* Comparing model accuracy of the two models generated, random forests and boosting, random forests model has overall better accuracy.
+* The final random forests model contains 500 trees with 27 variables tried at each split. The five most important predictors in this model are `r rownames(imp)[1:5]`.
+* Estimated __out of sample error rate__ for the random forests model is __0.18%__ as reported by the final model.
+
+```{r final_model, message = FALSE}
+# Final model
+rfFit$finalModel
+```
+
+
+## Prediction on unseen test set
+* Predict the answers and save the results for automatic grader.     
+
+```{r prediction, message = FALSE}
+# Loading unseen test data
+testingUnseen <- read.csv("pml-testing.csv", na.strings = c("NA", "#DIV/0!", ""))
+
+# Prediction
+answers <- as.character(predict(rfFit, testingUnseen))
+answers
+```
+```{r results, eval = FALSE}
+# write prediction files
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("./prediction/problem_id_", i, ".txt")
+    write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, col.names = FALSE)
+  }
+}
+pml_write_files(answers)
+```
